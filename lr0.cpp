@@ -2,116 +2,126 @@
 #include <vector>
 #include <map>
 #include <set>
+#include <cctype>
 #include <string>
 using namespace std;
 
-vector<pair<string, string>> g; 
-set<char> S; 
+map<char, vector<string>> grammar;
+vector<set<string>> itemSets;
+vector<map<char, int>> transitions;
+set<char> allSymbols;
+char startSymbol;
 
-string make(string A, string B, int d) {
-    return A + "->" + B.substr(0, d) + "." + B.substr(d);
+bool isNonTerminal(char c) { return isupper(c); }
+
+string makeItem(char lhs, string rhs, int dotPos) {
+    return string(1, lhs) + "->" + rhs.substr(0, dotPos) + "." + rhs.substr(dotPos);
 }
 
-void parse(string it, string &A, string &B, int &d) {
-    int x = it.find("->");
-    A = it.substr(0, x);
-    B = it.substr(x + 2);
-    d = B.find('.');
-    B.erase(d, 1);
+void parseItem(const string &item, char &lhs, string &rhs, int &dotPos) {
+    int arrow = item.find("->");
+    lhs = item[0];
+    rhs = item.substr(arrow + 2);
+    dotPos = rhs.find('.');
+    rhs.erase(dotPos, 1);
 }
 
-set<string> closure(set<string> I) {
-    bool c;
-    do {
-        c = false;
-        vector<string> v(I.begin(), I.end());
-        for (auto it : v) {
-            string A, B;
-            int d;
-            parse(it, A, B, d);
-            if (d < (int)B.size() && isupper(B[d])) {
-                for (auto p : g) {
-                    if (p.first[0] == B[d]) {
-                        if (I.insert(make(p.first, p.second, 0)).second)
-                            c = true;
+set<string> closure(set<string> items) {
+    bool changed = true;
+    while (changed) {
+        changed = false;
+        vector<string> current(items.begin(), items.end());
+        for (auto &it : current) {
+            char lhs; string rhs; int dotPos;
+            parseItem(it, lhs, rhs, dotPos);
+            if (dotPos < rhs.size() && isNonTerminal(rhs[dotPos])) {
+                char nextSymbol = rhs[dotPos];
+                for (auto &production : grammar[nextSymbol]) {
+                    string newItem = makeItem(nextSymbol, production, 0);
+                    if (!items.count(newItem)) {
+                        items.insert(newItem);
+                        changed = true;
                     }
                 }
             }
         }
-    } while (c);
-    return I;
+    }
+    return items;
 }
 
-set<string> goTo(set<string> I, char X) {
-    set<string> J;
-    for (auto it : I) {
-        string A, B;
-        int d;
-        parse(it, A, B, d);
-        if (d < (int)B.size() && B[d] == X)
-            J.insert(make(A, B, d + 1));
+set<string> goTo(set<string> items, char symbol) {
+    set<string> nextItems;
+    for (auto &it : items) {
+        char lhs; string rhs; int dotPos;
+        parseItem(it, lhs, rhs, dotPos);
+        if (dotPos < rhs.size() && rhs[dotPos] == symbol)
+            nextItems.insert(makeItem(lhs, rhs, dotPos + 1));
     }
-    return J.empty() ? set<string>{} : closure(J);
+    return nextItems.empty() ? nextItems : closure(nextItems);
+}
+
+int findItemSetIndex(set<string> &items) {
+    for (int i = 0; i < itemSets.size(); i++)
+        if (itemSets[i] == items) return i;
+    return -1;
 }
 
 int main() {
-    int n;
+    int productionCount;
     cout << "Enter number of productions: ";
-    cin >> n;
-    string s;
-    getline(cin, s);
-    cout << "Enter productions (A=alpha|beta|..., use # for epsilon):\n";
-    for (int i = 0; i < n; i++) {
-        getline(cin, s);
-        int eq = s.find('=');
-        string lhs = s.substr(0, eq), rhs = s.substr(eq + 1), prod = "";
+    cin >> productionCount;
+    cout << "Enter productions (S->AB|a, use # for epsilon):\n";
+
+    for (int i = 0; i < productionCount; i++) {
+        string input;
+        cin >> input;
+        char lhs = input[0];
+        if (i == 0) startSymbol = lhs;
+        string rhs = input.substr(3);
+
+        string current = "";
         for (char c : rhs) {
             if (c == '|') {
-                g.push_back({lhs, prod == "#" ? "" : prod});
-                for (char x : prod) S.insert(x);
-                prod = "";
-            } else prod += c;
-        }
-        g.push_back({lhs, prod == "#" ? "" : prod});
-        for (char x : prod) S.insert(x);
-        S.insert(lhs[0]);
-    }
-
-    string start = g[0].first, aug = start + "'";
-    g.insert(g.begin(), {aug, start});
-    S.insert(start[0]);
-
-    set<string> I0 = closure({make(aug, start, 0)});
-    vector<set<string>> C = {I0};
-    vector<map<char, int>> T(1);
-    map<string, int> idx;
-
-    auto key = [](set<string> s) {
-        string k;
-        for (auto &x : s) k += x + "|";
-        return k;
-    };
-    idx[key(I0)] = 0;
-
-    for (int i = 0; i < (int)C.size(); i++) {
-        for (char X : S) {
-            set<string> J = goTo(C[i], X);
-            if (J.empty()) continue;
-            string k = key(J);
-            if (!idx.count(k)) {
-                idx[k] = C.size();
-                C.push_back(J);
-                T.push_back({});
+                grammar[lhs].push_back(current);
+                current.clear();
+            } else {
+                current.push_back(c);
+                allSymbols.insert(c);
             }
-            T[i][X] = idx[k];
+        }
+        grammar[lhs].push_back(current);
+        allSymbols.insert(lhs);
+    }
+
+    string start(1, startSymbol);
+    string augmentedStart = "$";
+    set<string> startItem = closure({ makeItem(augmentedStart[0], start, 0) });
+
+    itemSets.push_back(startItem);
+    transitions.push_back({});
+    vector<char> symbolList(allSymbols.begin(), allSymbols.end());
+
+    for (int i = 0; i < itemSets.size(); i++) {
+        for (char symbol : symbolList) {
+            set<string> nextSet = goTo(itemSets[i], symbol);
+            if (nextSet.empty()) continue;
+            int index = findItemSetIndex(nextSet);
+            if (index == -1) {
+                index = itemSets.size();
+                itemSets.push_back(nextSet);
+                transitions.push_back({});
+            }
+            transitions[i][symbol] = index;
         }
     }
 
-    cout << "\nCanonical LR(0) Item Sets:\n";
-    for (int i = 0; i < (int)C.size(); i++) {
+    cout << "\nCanonical LR(0) Item Sets:\n\n";
+    for (int i = 0; i < itemSets.size(); i++) {
         cout << "I" << i << ":\n";
-        for (auto it : C[i]) cout << it << "\n";
-        for (auto p : T[i]) cout << "GOTO(I" << i << "," << p.first << ")=I" << p.second << "\n";
+        for (auto &it : itemSets[i])
+            cout << it << "\n";
+        for (auto &p : transitions[i])
+            cout << "GOTO(I" << i << ", " << p.first << ") = I" << p.second << "\n";
         cout << "\n";
     }
 }
