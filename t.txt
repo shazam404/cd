@@ -1,0 +1,22 @@
+int a, b;
+float x;
+a = 5;
+b = a + 2;
+x = 3.14;
+if (a > b) {
+    x = x + 1;
+} else {
+    b = b - 1;
+}
+while (b < 10) {
+    b = b + 1;
+}
+for (a = 0; a < 5; a++) {
+    x = x * 2;
+}
+/**
+ * This is a multi-line comment
+ * to test comment handling
+*/
+
+// Single line comment
