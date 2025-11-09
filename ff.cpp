@@ -2,98 +2,59 @@
 #include <vector>
 #include <map>
 #include <set>
-#include <cctype>
 #include <string>
 using namespace std;
 
-map<char, vector<string>> grammar;
-map<char, set<char>> FIRST, FOLLOW;
-map<pair<char, char>, string> table;
-set<char> nonTerminals, terminals;
-char startSymbol;
+map<char, vector<string>> g;
+map<char, set<char>> F, FO;
+char start;
 
-bool isTerminal(char c) {
-    return !isupper(c) && c != '#';
+set<char> first(string s) {
+    set<char> r;
+    if (s.empty() || s[0] == '#') { r.insert('#'); return r; }
+    if (!isupper(s[0])) { r.insert(s[0]); return r; }
+    for (auto p : g[s[0]]) {
+        set<char> t = first(p);
+        r.insert(t.begin(), t.end());
+    }
+    return r;
 }
 
-set<char> firstOf(string s) {
-    set<char> res;
-    if (s.empty()) {
-        res.insert('#');
-        return res;
-    }
-    char ch = s[0];
-    if(ch == '#') {
-        res.insert('#');
-        return res;
-    }
-    if (isTerminal(ch)) {
-        res.insert(ch);
-    } else {
-        for (auto prod : grammar[ch]) {
-            set<char> temp = firstOf(prod);
-            res.insert(temp.begin(), temp.end());
-        }
-    }
-    return res;
-}
-
-void computeFirst() {
-    bool changed;
+void compFirst() {
+    bool c;
     do {
-        changed = false;
-        for (auto &p : grammar) {
-            char nt = p.first;
+        c = false;
+        for (auto &p : g) {
             for (auto rhs : p.second) {
-                set<char> temp = firstOf(rhs);
-                int before = FIRST[nt].size();
-                FIRST[nt].insert(temp.begin(), temp.end());
-                if (FIRST[nt].size() != before) changed = true;
+                int b = F[p.first].size();
+                set<char> t = first(rhs);
+                F[p.first].insert(t.begin(), t.end());
+                if (F[p.first].size() != b) c = true;
             }
         }
-    } while (changed);
+    } while (c);
 }
 
-void computeFollow() {
-    FOLLOW[startSymbol].insert('$');
-    bool changed;
+void compFollow() {
+    FO[start].insert('$');
+    bool c;
     do {
-        changed = false;
-        for (auto &p : grammar) {
-            char A = p.first;
+        c = false;
+        for (auto &p : g) {
             for (auto rhs : p.second) {
-                for (int i = 0; i < rhs.size(); ++i) {
-                    char B = rhs[i];
-                    if (!isupper(B)) continue;
-                    string beta = "";
-                    if (i + 1 < rhs.size()) beta = rhs.substr(i + 1);
-                    set<char> firstBeta = firstOf(beta);
-                    int before = FOLLOW[B].size();
-                    for (char f : firstBeta)
-                        if (f != '#')
-                            FOLLOW[B].insert(f);
-                    if (beta.empty() || firstBeta.count('#'))
-                        FOLLOW[B].insert(FOLLOW[A].begin(), FOLLOW[A].end());
-                    if (FOLLOW[B].size() != before) changed = true;
+                for (int i = 0; i < rhs.size(); i++) {
+                    if (!isupper(rhs[i])) continue;
+                    string beta = (i + 1 < rhs.size()) ? rhs.substr(i + 1) : "";
+                    set<char> fb = first(beta);
+                    int b = FO[rhs[i]].size();
+                    for (char f : fb) if (f != '#') FO[rhs[i]].insert(f);
+                    if (beta.empty() || fb.count('#'))
+                        FO[rhs[i]].insert(FO[p.first].begin(), FO[p.first].end());
+                    if (FO[rhs[i]].size() != b) c = true;
                 }
             }
         }
-    } while (changed);
-}
-
-void buildTable() {
-    for (auto &p : grammar) {
-        char A = p.first;
-        for (auto rhs : p.second) {
-            set<char> f = firstOf(rhs);
-            for (char a : f)
-                if (a != '#')
-                    table[{A, a}] = rhs;
-            if (f.count('#'))
-                for (char b : FOLLOW[A])
-                    table[{A, b}] = rhs;
-        }
-    }
+    } while (c);
 }
 
 int main() {
@@ -103,41 +64,30 @@ int main() {
     cout << "Enter productions (e.g., S->AB|a):\n";
 
     for (int i = 0; i < n; i++) {
-        string input;
-        cin >> input;
-        char lhs = input[0];
-        if (i == 0) startSymbol = lhs;
-        nonTerminals.insert(lhs);
-
-        string rhs = "";
-        for (int j = 3; j < input.size(); j++) rhs += input[j];
+        string s;
+        cin >> s;
+        if (i == 0) start = s[0];
+        string rhs = s.substr(3);
         string prod = "";
-        for (int j = 0; j < rhs.size(); j++) {
-            if (rhs[j] == '|') {
-                grammar[lhs].push_back(prod);
-                prod = "";
-            } else prod += rhs[j];
+        for (char c : rhs) {
+            if (c == '|') { g[s[0]].push_back(prod); prod = ""; }
+            else prod += c;
         }
-        if (!prod.empty()) grammar[lhs].push_back(prod);
-
-        for (char c : rhs)
-            if (isTerminal(c) && c != '|' && c != '#')
-                terminals.insert(c);
+        if (!prod.empty()) g[s[0]].push_back(prod);
     }
 
-    computeFirst();
-    computeFollow();
-    buildTable();
+    compFirst();
+    compFollow();
 
     cout << "\nFIRST sets:\n";
-    for (auto &p : FIRST) {
+    for (auto &p : F) {
         cout << "FIRST(" << p.first << ") = { ";
         for (char c : p.second) cout << c << " ";
         cout << "}\n";
     }
 
     cout << "\nFOLLOW sets:\n";
-    for (auto &p : FOLLOW) {
+    for (auto &p : FO) {
         cout << "FOLLOW(" << p.first << ") = { ";
         for (char c : p.second) cout << c << " ";
         cout << "}\n";
