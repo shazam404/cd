@@ -1,174 +1,137 @@
-#include <bits/stdc++.h>
+#include <iostream>
+#include <vector>
+#include <map>
+#include <set>
+#include <string>
+#include <algorithm>
+
 using namespace std;
 
-struct Prod { string lhs, rhs; };
-struct Item { int p, d; };
-struct State { vector<Item> items; int id; };
+bool isNonTerm(char c){ return (c >= 'A' && c <= 'Z'); }
 
-vector<Prod> P;
-vector<State> S;
-map<pair<int,char>,int> trans;
-map<pair<int,char>,string> table;
+vector<pair<string,string>> prods;
+set<char> symbols;
 
-bool operator==(const Item& a, const Item& b) { return a.p==b.p && a.d==b.d; }
+string makeItem(string A, string B, int dot){
+    string s = A + "->";
+    s += B.substr(0, dot);
+    s += '.';
+    s += B.substr(dot);
+    return s;
+}
 
-void closure(State& s) {
-    for(int i=0; i<s.items.size(); i++) {
-        Item it = s.items[i];
-        if(it.d < P[it.p].rhs.size() && isupper(P[it.p].rhs[it.d])) {
-            char nt = P[it.p].rhs[it.d];
-            for(int j=0; j<P.size(); j++) {
-                if(P[j].lhs[0] == nt) {
-                    Item n = {j, 0};
-                    if(find(s.items.begin(), s.items.end(), n) == s.items.end())
-                        s.items.push_back(n);
+void parseItem(string it, string &A, string &B, int &dot){
+    int x = it.find("->");
+    A = it.substr(0, x);
+    B = it.substr(x+2);
+    dot = B.find('.');
+    B.erase(dot,1);
+}
+
+set<string> closure(set<string> I){
+    bool changed = true;
+    while(changed){
+        changed = false;
+        vector<string> temp(I.begin(), I.end());
+        for(auto it : temp){
+            string A,B; int dot;
+            parseItem(it, A,B,dot);
+            if(dot < (int)B.size() && isNonTerm(B[dot])){
+                char X = B[dot];
+                for(auto p: prods){
+                    if(p.first[0]==X){
+                        string item = makeItem(p.first,p.second,0);
+                        if(I.insert(item).second) changed = true;
+                    }
                 }
             }
         }
     }
+    return I;
 }
 
-State go(State& s, char x) {
-    State n; n.items.clear();
-    for(auto it : s.items) {
-        if(it.d < P[it.p].rhs.size() && P[it.p].rhs[it.d] == x)
-            n.items.push_back({it.p, it.d+1});
+set<string> goTo(set<string> I, char X){
+    set<string> J;
+    for(auto it : I){
+        string A,B; int dot;
+        parseItem(it,A,B,dot);
+        if(dot<(int)B.size() && B[dot]==X)
+            J.insert(makeItem(A,B,dot+1));
     }
-    if(!n.items.empty()) closure(n);
-    return n;
+    if(J.empty()) return {};
+    return closure(J);
 }
 
-bool same(State& a, State& b) {
-    if(a.items.size() != b.items.size()) return false;
-    for(auto it : a.items)
-        if(find(b.items.begin(), b.items.end(), it) == b.items.end())
-            return false;
-    return true;
+vector<string> splitByChar(string s, char c){
+    vector<string> parts;
+    string cur="";
+    for(char ch : s){
+        if(ch == c){
+            parts.push_back(cur);
+            cur="";
+        } else cur+=ch;
+    }
+    parts.push_back(cur);
+    return parts;
 }
 
-int findState(State& s) {
-    for(int i=0; i<S.size(); i++)
-        if(same(S[i], s)) return i;
-    return -1;
-}
+int main(){
+    int n; cout<<"Enter number of productions: "; cin>>n;
+    string s; getline(cin,s);
+    cout<<"Enter productions (A=alpha | beta | ... , use # for epsilon):\n";
+    for(int i=0;i<n;i++){
+        getline(cin,s);
+        int eq=s.find('=');
+        string A=s.substr(0,eq);
+        string R=s.substr(eq+1);
+        vector<string> rhs = splitByChar(R,'|');
+        for(string t : rhs){
+            if(t=="#") t="";
+            prods.push_back({A,t});
+            for(char c:t) symbols.insert(c);
+            symbols.insert(A[0]);
+        }
+    }
 
-void buildLR0() {
-    State s0; s0.items = {{0,0}}; s0.id = 0;
-    closure(s0);
-    S.push_back(s0);
-    
-    set<char> syms;
-    for(auto p : P)
-        for(char c : p.rhs)
-            if(c != '#') syms.insert(c);
-    
-    for(int i=0; i<S.size(); i++) {
-        for(char x : syms) {
-            State n = go(S[i], x);
-            if(!n.items.empty()) {
-                int idx = findState(n);
-                if(idx == -1) {
-                    n.id = S.size();
-                    S.push_back(n);
-                    trans[{i,x}] = n.id;
-                } else {
-                    trans[{i,x}] = idx;
-                }
+    string start = prods[0].first;
+    string aug = start+"'"; 
+    prods.insert(prods.begin(), {aug,start});
+    symbols.insert(start[0]);
+
+    set<string> I0 = closure({makeItem(aug,start,0)});
+    vector<set<string>> C = {I0};
+    vector<map<char,int>> trans(1);
+    map<string,int> idx;
+
+    auto key=[&](set<string> S){
+        vector<string> v(S.begin(),S.end());
+        sort(v.begin(),v.end());
+        string k;
+        for(auto &x:v) k+=x+"|";
+        return k;
+    };
+    idx[key(I0)] = 0;
+
+    vector<char> syms(symbols.begin(), symbols.end());
+    for(int i=0;i<(int)C.size();i++){
+        for(char X:syms){
+            set<string> J=goTo(C[i],X);
+            if(J.empty()) continue;
+            string k=key(J);
+            if(!idx.count(k)){
+                idx[k]=C.size();
+                C.push_back(J);
+                trans.push_back({});
             }
+            trans[i][X]=idx[k];
         }
     }
-}
 
-void buildTable() {
-    set<char> terms, nonterms;
-    for(auto p : P) {
-        if(p.lhs != "S'") nonterms.insert(p.lhs[0]);
-        for(char c : p.rhs)
-            if(c!='#') (isupper(c) ? nonterms : terms).insert(c);
+    cout<<"\nCanonical LR(0) Item Sets:\n\n";
+    for(int i=0;i<(int)C.size();i++){
+        cout<<"I"<<i<<":\n";
+        for(auto it:C[i]) cout<<it<<"\n";
+        for(auto p:trans[i]) cout<<"GOTO(I"<<i<<","<<p.first<<")=I"<<p.second<<"\n";
+        cout<<"\n";
     }
-    terms.insert('$');
-    
-    for(int i=0; i<S.size(); i++) {
-        for(auto it : S[i].items) {
-            if(it.d == P[it.p].rhs.size()) {
-                if(it.p == 0) table[{i,'$'}] = "acc";
-                else for(char t : terms) table[{i,t}] = "r"+to_string(it.p);
-            }
-        }
-        for(auto [k,v] : trans) {
-            if(k.first == i) {
-                if(isupper(k.second)) table[{i,k.second}] = to_string(v);
-                else table[{i,k.second}] = "s"+to_string(v);
-            }
-        }
-    }
-    
-    cout << "\nLR(0) TABLE:\n";
-    cout << "State | ACTION                    | GOTO\n";
-    cout << "      |";
-    for(char t : terms) cout << " " << t << "    ";
-    cout << "|";
-    for(char nt : nonterms) cout << " " << nt << " ";
-    cout << "\n" << string(60,'-') << "\n";
-    
-    for(int i=0; i<S.size(); i++) {
-        cout << setw(5) << i << " |";
-        for(char t : terms) {
-            string e = table[{i,t}];
-            cout << setw(6) << (e.empty()?"":e);
-        }
-        cout << "|";
-        for(char nt : nonterms) {
-            string e = table[{i,nt}];
-            cout << setw(3) << (e.empty()?"":e);
-        }
-        cout << "\n";
-    }
-}
-
-int main() {
-    int n; cin >> n; cin.ignore();
-    
-    for(int i=0; i<n; i++) {
-        string line, lhs, rhs;
-        getline(cin, line);
-        int pos = line.find('=');
-        lhs = line.substr(0,pos); rhs = line.substr(pos+1);
-        lhs.erase(remove(lhs.begin(),lhs.end(),' '),lhs.end());
-        rhs.erase(remove(rhs.begin(),rhs.end(),' '),rhs.end());
-        
-        if(i==0) P.push_back({"S'", string(1,lhs[0])});
-        
-        stringstream ss(rhs);
-        string alt;
-        while(getline(ss, alt, '|'))
-            P.push_back({lhs, alt});
-    }
-    
-    cout << "\nAugmented Grammar:\n";
-    for(int i=0; i<P.size(); i++)
-        cout << i << ". " << P[i].lhs << " -> " << P[i].rhs << "\n";
-    
-    buildLR0();
-    
-    cout << "\nCanonical Collection:\n";
-    for(auto s : S) {
-        cout << "I" << s.id << ":\n";
-        for(auto it : s.items) {
-            cout << "  " << P[it.p].lhs << " -> ";
-            for(int i=0; i<P[it.p].rhs.size(); i++) {
-                if(i==it.d) cout << ".";
-                cout << P[it.p].rhs[i];
-            }
-            if(it.d==P[it.p].rhs.size()) cout << ".";
-            cout << "\n";
-        }
-        for(auto [k,v] : trans)
-            if(k.first == s.id)
-                cout << "  GOTO(I" << s.id << "," << k.second << ") = I" << v << "\n";
-        cout << "\n";
-    }
-    
-    buildTable();
-    return 0;
 }
