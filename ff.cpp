@@ -142,10 +142,5 @@ int main() {
         for (char c : p.second) cout << c << " ";
         cout << "}\n";
     }
-
-    cout << "\nLL(1) Parsing Table:\n";
-    for (auto &p : table)
-        cout << p.first.first << " , " << p.first.second << " -> " << p.second << "\n";
-
     return 0;
 }
